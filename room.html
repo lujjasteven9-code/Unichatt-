@@ -1,0 +1,504 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0" />
+<title>pokopoko — Room</title>
+<script src="https://download.agora.io/sdk/release/AgoraRTC_N-4.20.0.js"></script>
+<style>
+  * { box-sizing: border-box; margin: 0; padding: 0; -webkit-tap-highlight-color: transparent; }
+  body {
+    background: #12081F; font-family: 'Nunito', sans-serif;
+    min-height: 100vh; display: flex; flex-direction: column; color: #FFF5FA;
+  }
+  .room-header {
+    display: flex; align-items: center; gap: 12px; padding: 18px 16px;
+    background: linear-gradient(180deg, #2A1B45 0%, #221539 100%);
+    border-bottom: 1px solid rgba(255,255,255,0.08); flex-shrink: 0;
+  }
+  #room-title { font-weight: 800; font-size: 17px; }
+  #room-subtitle { font-size: 12px; color: #A99BC7; margin-top: 2px; }
+  #room-participants {
+    flex: 1; overflow-y: auto; padding: 16px;
+    display: grid; grid-template-columns: 1fr 1fr; gap: 12px;
+    align-content: start;
+  }
+  .participant-tile {
+    background: #1A0F2E; border-radius: 14px; aspect-ratio: 1;
+    display: flex; align-items: center; justify-content: center;
+    position: relative; overflow: hidden; font-weight: 700; color: #A99BC7;
+    cursor: pointer;
+  }
+  .participant-tile .tile-name {
+    position: absolute; bottom: 6px; left: 8px; right: 8px;
+    font-size: 11px; font-weight: 700; color: #fff;
+    text-shadow: 0 1px 3px rgba(0,0,0,0.8); text-align: left;
+    overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+  }
+  .participant-tile .tile-badge {
+    position: absolute; top: 6px; right: 6px; font-size: 15px;
+  }
+  .participant-tile .tile-avatar {
+    width: 46px; height: 46px; border-radius: 50%; font-size: 16px;
+    display: flex; align-items: center; justify-content: center;
+    color: #fff; font-weight: 800;
+  }
+  .controls {
+    display: flex; gap: 16px; padding: 20px; justify-content: center;
+    background: linear-gradient(180deg, #221539, #2A1B45);
+    border-top: 1px solid rgba(255,255,255,0.08); flex-shrink: 0;
+  }
+  .ctrl-btn {
+    width: 52px; height: 52px; border-radius: 50%; border: none; cursor: pointer;
+    font-size: 22px; display: flex; align-items: center; justify-content: center;
+    background: rgba(255,255,255,0.08); color: #fff; transition: all 0.2s;
+  }
+  .ctrl-btn:active { transform: scale(0.94); }
+  .ctrl-btn.off { opacity: 0.4; }
+  .ctrl-btn.leave { background: #FF4B6E; }
+  .status-msg { text-align: center; padding: 40px 20px; color: #A99BC7; grid-column: 1/-1; }
+  .spinner {
+    width: 32px; height: 32px; border: 3px solid rgba(255,255,255,0.15);
+    border-top-color: #FF6B9D; border-radius: 50%; margin: 0 auto 12px;
+    animation: spin 0.8s linear infinite;
+  }
+  @keyframes spin { to { transform: rotate(360deg); } }
+
+  /* Gift picker sheet */
+  .gift-sheet-overlay {
+    position: fixed; inset: 0; background: rgba(0,0,0,0.55);
+    display: none; align-items: flex-end; justify-content: center; z-index: 50;
+  }
+  .gift-sheet-overlay.show { display: flex; }
+  .gift-sheet {
+    background: #221539; width: 100%; max-width: 480px;
+    border-radius: 20px 20px 0 0; padding: 18px 16px 26px;
+    max-height: 70vh; overflow-y: auto;
+  }
+  .gift-sheet h3 { font-size: 15px; margin-bottom: 4px; }
+  .gift-sheet .to-whom { font-size: 12px; color: #A99BC7; margin-bottom: 14px; }
+  .gift-grid {
+    display: grid; grid-template-columns: repeat(3, 1fr); gap: 10px;
+  }
+  .gift-option {
+    background: rgba(255,255,255,0.06); border: 1px solid rgba(255,255,255,0.08);
+    border-radius: 14px; padding: 12px 6px; text-align: center; cursor: pointer;
+  }
+  .gift-option:active { transform: scale(0.95); }
+  .gift-option .g-emoji { font-size: 28px; }
+  .gift-option .g-name { font-size: 12px; font-weight: 700; margin-top: 4px; }
+  .gift-option .g-price { font-size: 11px; color: #FFD43B; margin-top: 2px; }
+  .coin-balance-pill {
+    position: absolute; top: 18px; right: 16px; background: rgba(255,255,255,0.1);
+    border-radius: 20px; padding: 6px 12px; font-size: 12.5px; font-weight: 800;
+    color: #FFD43B; display: flex; align-items: center; gap: 5px;
+  }
+
+  /* Floating gift animation overlay */
+  #gift-fx-layer {
+    position: fixed; inset: 0; pointer-events: none; z-index: 60;
+    overflow: hidden;
+  }
+  .gift-fx {
+    position: absolute; bottom: 90px; left: 50%;
+    transform: translateX(-50%);
+    display: flex; flex-direction: column; align-items: center;
+    animation: giftFloat 2.8s ease-out forwards;
+  }
+  .gift-fx .fx-emoji { font-size: 56px; filter: drop-shadow(0 4px 10px rgba(0,0,0,0.4)); }
+  .gift-fx .fx-caption {
+    margin-top: 6px; background: rgba(0,0,0,0.55); padding: 4px 12px;
+    border-radius: 20px; font-size: 12.5px; font-weight: 700; white-space: nowrap;
+  }
+  @keyframes giftFloat {
+    0%   { opacity: 0; transform: translateX(-50%) translateY(20px) scale(0.6); }
+    15%  { opacity: 1; transform: translateX(-50%) translateY(0) scale(1.1); }
+    25%  { transform: translateX(-50%) translateY(-6px) scale(1); }
+    80%  { opacity: 1; transform: translateX(-50%) translateY(-140px) scale(1); }
+    100% { opacity: 0; transform: translateX(-50%) translateY(-190px) scale(0.9); }
+  }
+</style>
+</head>
+<body>
+
+<div class="room-header" style="position:relative;">
+  <div style="flex:1">
+    <div id="room-title">Room</div>
+    <div id="room-subtitle">Connecting...</div>
+  </div>
+  <div class="coin-balance-pill" id="coin-balance-pill">🪙 <span id="coin-balance-val">0</span></div>
+</div>
+
+<div id="room-participants">
+  <div class="status-msg"><div class="spinner"></div>Connecting to room...</div>
+</div>
+
+<div class="controls">
+  <button class="ctrl-btn" id="mic-btn">🎙️</button>
+  <button class="ctrl-btn" id="cam-btn">📹</button>
+  <button class="ctrl-btn leave" id="leave-btn">📞</button>
+</div>
+
+<div class="gift-sheet-overlay" id="gift-sheet-overlay">
+  <div class="gift-sheet">
+    <h3>Send a gift</h3>
+    <div class="to-whom" id="gift-to-whom">To —</div>
+    <div class="gift-grid" id="gift-grid"></div>
+  </div>
+</div>
+
+<div id="gift-fx-layer"></div>
+<script type="module">
+import { initializeApp } from "https://www.gstatic.com/firebasejs/10.12.0/firebase-app.js";
+import { getAuth, onAuthStateChanged } from "https://www.gstatic.com/firebasejs/10.12.0/firebase-auth.js";
+import {
+  getFirestore, doc, getDoc, setDoc, updateDoc, deleteDoc, onSnapshot,
+  collection, addDoc, query, orderBy, limit, serverTimestamp, runTransaction
+} from "https://www.gstatic.com/firebasejs/10.12.0/firebase-firestore.js";
+
+const firebaseApp = initializeApp({
+  apiKey: "AIzaSyAxDckKV50wG8fjbqRGzsKSgHrpKsk9mZA",
+  authDomain: "pokopoko-chart-f9a7c.firebaseapp.com",
+  projectId: "pokopoko-chart-f9a7c",
+  storageBucket: "pokopoko-chart-f9a7c.firebasestorage.app",
+  messagingSenderId: "749978945461",
+  appId: "1:749978945461:web:7239c0c83f48369862bbfc"
+});
+const auth = getAuth(firebaseApp);
+const db = getFirestore(firebaseApp);
+
+const AGORA_APP_ID = '30c3edfed54f4125813d0da1ff8193ce';
+
+const params = new URLSearchParams(window.location.search);
+const roomId = params.get('id');
+const roomType = params.get('type') || 'audio';
+const roomName = params.get('name') || 'Room';
+
+document.getElementById('room-title').textContent = roomName;
+
+let agoraClient = null, localAudioTrack = null, localVideoTrack = null;
+let remoteUsers = {};
+let micOn = true, camOn = true;
+let currentUid = null;
+let myProfile = { name: 'You', color: '#4ECDC4', photo: null };
+
+// agoraNumericUid -> { uid, name, photo, color, badges }
+let presenceByAgoraUid = {};
+let presenceUnsub = null;
+let giftEventsUnsub = null;
+let selectedGiftTargetUid = null;
+let selectedGiftTargetName = '';
+
+// ── Gift catalog (kept in code for now; move to a Firestore 'gifts'
+// collection later if you want to edit prices without redeploying) ──
+const GIFT_CATALOG = [
+  { id: 'rose',    name: 'Rose',    emoji: '🌹', price: 10  },
+  { id: 'heart',   name: 'Heart',   emoji: '❤️', price: 20  },
+  { id: 'star',    name: 'Star',    emoji: '⭐', price: 50  },
+  { id: 'fire',    name: 'Fire',    emoji: '🔥', price: 80  },
+  { id: 'crown',   name: 'Crown',   emoji: '👑', price: 200 },
+  { id: 'rocket',  name: 'Rocket',  emoji: '🚀', price: 500 },
+];
+
+function renderGiftGrid() {
+  const grid = document.getElementById('gift-grid');
+  grid.innerHTML = GIFT_CATALOG.map(g => `
+    <div class="gift-option" data-gift-id="${g.id}">
+      <div class="g-emoji">${g.emoji}</div>
+      <div class="g-name">${g.name}</div>
+      <div class="g-price">🪙 ${g.price}</div>
+    </div>
+  `).join('');
+  grid.querySelectorAll('.gift-option').forEach(el => {
+    el.onclick = () => sendGift(el.getAttribute('data-gift-id'));
+  });
+}
+
+function openGiftSheet(targetUid, targetName) {
+  if (!targetUid || targetUid === currentUid) return; // can't gift yourself
+  selectedGiftTargetUid = targetUid;
+  selectedGiftTargetName = targetName;
+  document.getElementById('gift-to-whom').textContent = `To ${targetName}`;
+  document.getElementById('gift-sheet-overlay').classList.add('show');
+}
+
+document.getElementById('gift-sheet-overlay').onclick = (e) => {
+  if (e.target.id === 'gift-sheet-overlay') {
+    document.getElementById('gift-sheet-overlay').classList.remove('show');
+  }
+};
+
+async function refreshCoinBalance() {
+  const snap = await getDoc(doc(db, 'users', currentUid));
+  const coins = snap.data()?.coins || 0;
+  document.getElementById('coin-balance-val').textContent = coins;
+  return coins;
+}
+
+async function sendGift(giftId) {
+  const gift = GIFT_CATALOG.find(g => g.id === giftId);
+  if (!gift || !selectedGiftTargetUid) return;
+  document.getElementById('gift-sheet-overlay').classList.remove('show');
+
+  try {
+    // Deduct coins atomically so a user can't overspend via double taps
+    await runTransaction(db, async (tx) => {
+      const userRef = doc(db, 'users', currentUid);
+      const userSnap = await tx.get(userRef);
+      const coins = userSnap.data()?.coins || 0;
+      if (coins < gift.price) throw new Error('INSUFFICIENT_COINS');
+      tx.update(userRef, { coins: coins - gift.price });
+
+      const targetRef = doc(db, 'users', selectedGiftTargetUid);
+      const targetSnap = await tx.get(targetRef);
+      const targetGiftsReceived = targetSnap.data()?.giftsReceived || 0;
+      tx.update(targetRef, { giftsReceived: targetGiftsReceived + 1 });
+    });
+
+    await addDoc(collection(db, 'rooms', roomId, 'giftEvents'), {
+      fromUid: currentUid,
+      fromName: myProfile.name,
+      toUid: selectedGiftTargetUid,
+      toName: selectedGiftTargetName,
+      giftId: gift.id,
+      giftEmoji: gift.emoji,
+      giftName: gift.name,
+      createdAt: serverTimestamp()
+    });
+
+    await refreshCoinBalance();
+  } catch (e) {
+    if (e.message === 'INSUFFICIENT_COINS') {
+      alert(`Not enough coins for ${gift.name} (🪙 ${gift.price}). Top up in the app.`);
+    } else {
+      alert('Failed to send gift: ' + e.message);
+    }
+  }
+}
+
+function spawnGiftFx(emoji, caption) {
+  const layer = document.getElementById('gift-fx-layer');
+  const el = document.createElement('div');
+  el.className = 'gift-fx';
+  el.style.left = (40 + Math.random() * 20) + '%';
+  el.innerHTML = `<div class="fx-emoji">${emoji}</div><div class="fx-caption">${caption}</div>`;
+  layer.appendChild(el);
+  setTimeout(() => el.remove(), 2900);
+}
+
+function listenForGiftEvents() {
+  const q = query(collection(db, 'rooms', roomId, 'giftEvents'), orderBy('createdAt', 'desc'), limit(20));
+  let firstLoad = true;
+  giftEventsUnsub = onSnapshot(q, (snap) => {
+    if (firstLoad) { firstLoad = false; return; } // don't replay history on join
+    snap.docChanges().forEach(change => {
+      if (change.type === 'added') {
+        const d = change.doc.data();
+        spawnGiftFx(d.giftEmoji, `${d.fromName} → ${d.toName}: ${d.giftName}`);
+      }
+    });
+  });
+}
+
+// ── Presence: publish our real profile so other tiles can be gifted ──
+async function publishPresence() {
+  await setDoc(doc(db, 'rooms', roomId, 'presence', currentUid), {
+    uid: currentUid,
+    name: myProfile.name,
+    photo: myProfile.photo || null,
+    color: myProfile.color || '#4ECDC4',
+    badges: myProfile.badges || [],
+    joinedAt: serverTimestamp()
+  });
+}
+
+async function clearPresence() {
+  try { await deleteDoc(doc(db, 'rooms', roomId, 'presence', currentUid)); } catch (e) {}
+}
+
+function listenForPresence() {
+  presenceUnsub = onSnapshot(collection(db, 'rooms', roomId, 'presence'), (snap) => {
+    presenceByAgoraUid = {};
+    snap.forEach(d => {
+      const p = d.data();
+      presenceByAgoraUid[p.uid] = p; // keyed by real uid; tiles resolve via remoteUsers mapping below
+    });
+    renderParticipants();
+  });
+}
+
+
+function renderParticipants() {
+  const container = document.getElementById('room-participants');
+  container.innerHTML = '';
+
+  const myTile = document.createElement('div');
+  myTile.className = 'participant-tile';
+  myTile.innerHTML = `<div class="tile-avatar" style="background:linear-gradient(135deg,${myProfile.color},${myProfile.color}88)">${myProfile.photo ? '' : initials(myProfile.name)}</div><div class="tile-name">You</div>`;
+  if (localVideoTrack && camOn) {
+    myTile.innerHTML = '<div class="tile-name">You</div>';
+    localVideoTrack.play(myTile);
+  }
+  container.appendChild(myTile);
+
+  Object.values(remoteUsers).forEach(user => {
+    const p = presenceByAgoraUid[user.uid]; // user.uid is the real Firebase uid (see joinRoom)
+    const name = p?.name || `User ${String(user.uid).slice(0,6)}`;
+    const color = p?.color || '#4ECDC4';
+    const badgeEmoji = (p?.badges && p.badges.length) ? BADGE_CATALOG.find(b => b.id === p.badges[0])?.emoji : '';
+
+    const tile = document.createElement('div');
+    tile.className = 'participant-tile';
+    if (user.videoTrack) {
+      user.videoTrack.play(tile);
+      const nameTag = document.createElement('div');
+      nameTag.className = 'tile-name';
+      nameTag.textContent = name;
+      tile.appendChild(nameTag);
+    } else {
+      tile.innerHTML = `<div class="tile-avatar" style="background:linear-gradient(135deg,${color},${color}88)">${initials(name)}</div><div class="tile-name">${name}</div>`;
+    }
+    if (badgeEmoji) {
+      const b = document.createElement('div');
+      b.className = 'tile-badge';
+      b.textContent = badgeEmoji;
+      tile.appendChild(b);
+    }
+    tile.onclick = () => openGiftSheet(user.uid, name);
+    container.appendChild(tile);
+  });
+
+  document.getElementById('room-subtitle').textContent =
+    `${Object.keys(remoteUsers).length + 1} in room`;
+}
+
+function initials(name) {
+  return (name || 'U').trim().split(/\s+/).slice(0,2).map(w => w[0]?.toUpperCase() || '').join('');
+}
+
+const BADGE_CATALOG = [
+  { id: 'supporter', name: 'Supporter', emoji: '🥇' },
+  { id: 'vip',       name: 'VIP',       emoji: '💎' },
+  { id: 'legend',    name: 'Legend',    emoji: '👑' },
+];
+
+async function joinRoom() {
+  if (!roomId) {
+    document.getElementById('room-participants').innerHTML =
+      '<div class="status-msg">No room ID provided.</div>';
+    return;
+  }
+  try {
+    // Load our own profile so our tile + gift attribution show real info
+    const meSnap = await getDoc(doc(db, 'users', currentUid));
+    const me = meSnap.data() || {};
+    myProfile = { name: me.name || 'You', color: me.color || '#4ECDC4', photo: me.photo || null, badges: me.badges || [] };
+    renderGiftGrid();
+    await refreshCoinBalance();
+
+    agoraClient = AgoraRTC.createClient({ mode: 'rtc', codec: 'vp8' });
+
+    agoraClient.on('user-published', async (user, mediaType) => {
+      await agoraClient.subscribe(user, mediaType);
+      remoteUsers[user.uid] = user;
+      renderParticipants();
+      if (mediaType === 'audio') user.audioTrack.play();
+    });
+    agoraClient.on('user-unpublished', () => renderParticipants());
+    agoraClient.on('user-left', (user) => {
+      delete remoteUsers[user.uid];
+      renderParticipants();
+    });
+
+    // Use our real Firebase uid as the Agora uid (Agora supports string UIDs)
+    // so remote tiles can be mapped back to real accounts for gifting.
+    await agoraClient.join(AGORA_APP_ID, roomId, null, currentUid);
+
+    localAudioTrack = await AgoraRTC.createMicrophoneAudioTrack();
+    const tracksToPublish = [localAudioTrack];
+
+    if (roomType === 'video') {
+      localVideoTrack = await AgoraRTC.createCameraVideoTrack();
+      tracksToPublish.push(localVideoTrack);
+    } else {
+      document.getElementById('cam-btn').style.display = 'none';
+    }
+
+    await agoraClient.publish(tracksToPublish);
+
+    try {
+      const roomSnap = await getDoc(doc(db,'rooms',roomId));
+      if (roomSnap.exists()) {
+        await updateDoc(doc(db,'rooms',roomId), {
+          participantCount: (roomSnap.data().participantCount||0) + 1
+        });
+      }
+    } catch(e) {}
+
+    await publishPresence();
+    listenForPresence();
+    listenForGiftEvents();
+
+    renderParticipants();
+  } catch(e) {
+    document.getElementById('room-participants').innerHTML =
+      `<div class="status-msg">Failed to join room: ${e.message}</div>`;
+  }
+}
+
+async function leaveRoom() {
+  try {
+    if (localAudioTrack) { localAudioTrack.close(); localAudioTrack = null; }
+    if (localVideoTrack) { localVideoTrack.close(); localVideoTrack = null; }
+    if (agoraClient) { await agoraClient.leave(); agoraClient = null; }
+    if (presenceUnsub) { presenceUnsub(); presenceUnsub = null; }
+    if (giftEventsUnsub) { giftEventsUnsub(); giftEventsUnsub = null; }
+    await clearPresence();
+    if (roomId) {
+      const roomSnap = await getDoc(doc(db,'rooms',roomId));
+      if (roomSnap.exists()) {
+        const count = Math.max(0, (roomSnap.data().participantCount||1) - 1);
+        await updateDoc(doc(db,'rooms',roomId), { participantCount: count });
+      }
+    }
+  } catch(e) {}
+  window.close();
+  // Fallback if window.close() is blocked (not opened via script in this tab's history)
+  document.getElementById('room-participants').innerHTML =
+    '<div class="status-msg">You left the room. You can close this tab.</div>';
+}
+
+document.getElementById('leave-btn').onclick = leaveRoom;
+
+document.getElementById('mic-btn').onclick = async () => {
+  if (!localAudioTrack) return;
+  micOn = !micOn;
+  await localAudioTrack.setEnabled(micOn);
+  document.getElementById('mic-btn').classList.toggle('off', !micOn);
+};
+
+document.getElementById('cam-btn').onclick = async () => {
+  if (!localVideoTrack) return;
+  camOn = !camOn;
+  await localVideoTrack.setEnabled(camOn);
+  document.getElementById('cam-btn').classList.toggle('off', !camOn);
+  renderParticipants();
+};
+
+onAuthStateChanged(auth, (user) => {
+  if (user) {
+    currentUid = user.uid;
+    joinRoom();
+  } else {
+    document.getElementById('room-participants').innerHTML =
+      '<div class="status-msg">Please sign in to pokopoko first, then reopen this room.</div>';
+  }
+});
+
+window.addEventListener('beforeunload', () => {
+  if (agoraClient) leaveRoom();
+});
+</script>
+
+</body>
+</html>
